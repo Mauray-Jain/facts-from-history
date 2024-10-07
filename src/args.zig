@@ -95,7 +95,6 @@ pub fn printHelpOnError(msg: []const u8) !void {
     const stderr = std.io.getStdErr().writer();
     try stderr.writeAll(msg);
     try stderr.writeAll(help_ops);
-    std.process.exit(1);
 }
 
 /// Parses the arg and sets conds

@@ -4,7 +4,7 @@ const json = @import("json_utils.zig");
 
 // TODO: prevent repetition, implement -m x, -e x ..., implement a progress bar while waiting for request
 
-pub fn main() !void {
+pub fn main() !u8 {
     const stdout_file = std.io.getStdOut().writer();
     const stderr = std.io.getStdErr().writer();
     var bw = std.io.bufferedWriter(stdout_file);
@@ -12,7 +12,10 @@ pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit() == .leak) @panic("Achievement unlocked!: Success fully leaked memory");
-    const allocator = gpa.allocator();
+    const alloc = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    const allocator = arena.allocator();
+    defer arena.deinit();
 
     // Parse arguments
     var args_iter = try std.process.argsWithAllocator(allocator);
@@ -25,34 +28,38 @@ pub fn main() !void {
             if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
                 try stdout.print(args.help_ops, .{});
                 try bw.flush();
-                std.process.exit(0);
+                return 0;
             }
             args.parseArg(&conds, arg) catch |err| switch (err) {
                 error.Overflow => {
                     try args.printHelpOnError("Error: arg has very big number consider reducing it\n");
+                    return 1;
                 },
                 error.NoNumber => {
                     try args.printHelpOnError("Error: arg has no number\n");
+                    return 1;
                 },
                 error.InvalidArgs => {
                     try args.printHelpOnError("Error: arg is invalid\n");
+                    return 1;
                 },
                 else => unreachable,
             };
             args_cnt += 1;
             if (args_cnt > 5) {
                 try args.printHelpOnError("Error: Too many arguments. Don't repeat arguments\n");
+                return 1;
             }
         }
     }
 
     if (!args.isDateValid(conds.date, conds.month)) {
         try stderr.print("Error: Date entered is invalid\n", .{});
-        std.process.exit(1);
+        return 1;
     }
     if ((conds.date == 0 and conds.month != 0) or (conds.date != 0 and conds.month == 0)) {
         try stderr.print("Error: Please enter both month and date or don't enter any\n", .{});
-        std.process.exit(1);
+        return 1;
     }
 
     // Make client
@@ -66,27 +73,39 @@ pub fn main() !void {
         url = try std.fmt.allocPrint(allocator, "https://history.muffinlabs.com/date", .{});
     }
 
-    const uri = std.Uri.parse(url) catch |err| {
-        std.debug.panic("Parse error: {}\n", .{err});
-    };
-    defer allocator.free(url);
+    // const uri = std.Uri.parse(url) catch |err| {
+    //     std.debug.panic("Parse error: {}\n", .{err});
+    // };
+    // defer allocator.free(url);
 
-    var headers = std.http.Headers{ .allocator = allocator };
-    defer headers.deinit();
-    try headers.append("accept", "application/json");
+    // var headers = std.http.Headers{ .allocator = allocator };
+    // defer headers.deinit();
+    // try headers.append("accept", "application/json");
 
-    var req = try client.request(.GET, uri, headers, .{});
-    defer req.deinit();
+    // try req.send();
+    // try req.wait();
 
-    try req.start();
-    try req.wait();
-    const body = try req.reader().readAllAlloc(allocator, 10_00_000);
+    // const body = try req.reader().readAllAlloc(allocator, 10_00_000);
+    // defer allocator.free(body);
+
+    var list = std.ArrayList(u8).init(allocator);
+    const status = try client.fetch(.{
+        .headers = .{ .accept_encoding = .{ .override = "application/json" } },
+        .location = .{ .url = url },
+        .response_storage = .{ .dynamic = &list },
+    });
+    if (status.status != .ok) {
+        try stderr.print("Couldn't make request\n", .{});
+        return 1;
+    }
+    const body = try list.toOwnedSlice();
     defer allocator.free(body);
     const result = json.parseJson(allocator, body, conds) catch {
         try stderr.print("Some error ocurred while parsing JSON\n", .{});
-        std.process.exit(1);
+        return 1;
     };
     defer result.deinit();
     try stdout.print("{s}\n", .{result.items});
     try bw.flush();
+    return 0;
 }
