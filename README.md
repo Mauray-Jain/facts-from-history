@@ -1,6 +1,9 @@
 # Facts From History
-This CLI tool gives you some facts from history
-using [this api](https://history.muffinlabs.com/)
+
+This CLI tool gives you some facts from history using [this api](https://history.muffinlabs.com/)
+
+(PS: tested till zig 0.14)
+
 ## Options
 - --help or -h       : Prints the help menu
 - --events=x or -e=x : Prints x amount of events (By default x = 1)
